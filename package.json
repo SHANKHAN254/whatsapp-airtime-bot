@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-airtime-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for deposits and airtime purchases via PayHero API",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.18.5"
+  },
+  "author": "GK-FY",
+  "license": "ISC"
+}
