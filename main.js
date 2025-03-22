@@ -1,63 +1,73 @@
 "use strict";
 
-// ---------- Required Modules ----------
+/*
+  WhatsApp Airtime Bot with:
+   - Channel ID = 724
+   - Webpage QR code display
+   - Admin discount for airtime ("/setdiscount <percentage>")
+   - Order format: FY'S-xxxxx
+   - M-Pesa transaction code shown
+   - Additional user-friendly texts & emojis
+*/
+
 const express = require("express");
-const qrcode = require("qrcode"); // for generating data URL of QR code
+const qrcode = require("qrcode");
 const qrcodeTerminal = require("qrcode-terminal");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const axios = require("axios");
 
-// ---------- Configuration & Constants ----------
+// ====================
+// CONFIGURATION & CONSTANTS
+// ====================
 
-// PayHero API details
+// PayHero API
 const PAYHERO_AUTH = "Basic QklYOXY0WlR4RUV4ZUJSOG1EdDY6c2lYb09taHRYSlFMbWZ0dFdqeGp4SG13NDFTekJLckl2Z2NWd2F1aw==";
-const PAYHERO_CHANNEL_ID = 724;  // updated channel id
+const PAYHERO_CHANNEL_ID = 724;
 
-// Airtime API details
+// Airtime API
 const AIRTIME_API_KEY = "6HyMVLHJMcBVBIhUKrHyjnakzWrYKYo8wo6hOmdTQV7gdIjbYV";
 const AIRTIME_USERNAME = "fysproperty";
 
-// Admin phone (international format without plus)
+// Admin phone
 const ADMIN_PHONE = "254701339573";
 
-// ---------- Bot Configuration (Customizable texts) ----------
+// ====================
+// BOT CONFIGURATION
+// ====================
 let botConfig = {
   mainMenuText: "📋 *Main Menu:*\n1️⃣ Deposit\n2️⃣ Buy Airtime\n3️⃣ Check Balance\n4️⃣ Help\n5️⃣ Check Order Status\n\n_Reply with the number of your choice._",
-  
-  // Deposit texts
-  depositPrompt: "💰 *Deposit Flow*\nEnter the deposit amount in Ksh (min 10, max 3000):",
+
+  // Deposit
+  depositPrompt: "💰 *Deposit Flow*\nEnter deposit amount (10-3000 Ksh):",
   depositStatusSuccess: "🎉 *Deposit Successful!*\nYour payment of Ksh {amount} was received on {date}.",
-  depositStatusFailed: "❌ *Deposit Failed:* {status}. Please try again.",
+  depositStatusFailed: "❌ *Deposit Failed:* {status}.",
   depositFooter: "🙏 Thank you for using FYS_PROPERTY! Type 'menu' to continue.",
-  
-  // Airtime texts – new flow:
-  airtimeAmountPrompt: "📱 *Airtime Purchase*\nEnter the airtime amount you wish to buy (min 10, max 3000 Ksh):",
-  airtimeRecipientPrompt: "📲 Enter the recipient phone number (this number will receive airtime; must start with 07 or 01, 10 digits):",
-  airtimePayerPrompt: "💳 Enter the phone number that will pay for the airtime (must start with 07 or 01, 10 digits):",
-  airtimePaymentInitiated: "*⏳ Payment initiated!* Checking status in {seconds} seconds...",
+
+  // Airtime
+  airtimeAmountPrompt: "📱 *Airtime Purchase*\nEnter amount (10-3000 Ksh):",
+  airtimeRecipientPrompt: "📲 Enter recipient phone (07/01..., 10 digits):",
+  airtimePayerPrompt: "💳 Enter payer phone (07/01..., 10 digits):",
   airtimeStatusSuccess: "🎉 *Airtime Transferred!*\nOrder: {orderNumber}\nPayer: {payer}\nRecipient: {recipient}\nM-Pesa Code: {mpesaCode}\nDate: {date}\nStatus: TRANSFERRED✅",
   airtimeStatusFailed: "❌ *Airtime Purchase Failed:* {status}.",
-  
-  // Order status text (for user order lookup)
-  orderStatusText: "📄 *Order Status:*\nOrder: {orderNumber}\nPayer: {payer}\nRecipient: {recipient}\nAmount: Ksh {amount}\nM-Pesa Code: {mpesaCode}\nDate: {date}\nStatus: {status}\nRemarks: {remark}",
-  
-  // Balance text
+
+  // Orders
+  orderStatusText: "📄 *Order Status:*\nOrder: {orderNumber}\nPayer: {payer}\nRecipient: {recipient}\nAmount: {amount}\nM-Pesa Code: {mpesaCode}\nDate: {date}\nStatus: {status}\nRemarks: {remark}",
+
+  // Balance & help
   balanceMessage: "💵 Your current balance is: Ksh {balance}.",
-  
-  // Help text for users
-  helpText: "💡 *Help*\nCommands:\n• menu – Main menu\n• help – Show commands\n• deposit – Deposit funds\n• buy airtime – Buy airtime\n• order status <OrderNumber> – Check your order status",
-  
-  // Admin help text
-  adminHelp: "🛠️ *Admin Commands:*\n• msg [2547xxx,2547yyy] message – Broadcast message\n• /genlink <userID> – Generate unique referral link for a user\n• /setdiscount <percentage> – Set airtime discount percentage\n• /updateorder <OrderNumber> <Status> <Remark> – Update order status\n• /resetdata, /clearhistory <number>, /exportdata, /adjust, etc.\nType 'Admin CMD' to view this help.",
-  
-  // Maintenance message
-  maintenanceMessage: "⚙️ The system is under maintenance. Please try again later.",
-  
-  // Airtime discount percentage (default 0%)
+  helpText: "💡 *Help*\nCommands:\n• menu – Main menu\n• help – Show commands\n• deposit – Deposit\n• buy airtime – Buy airtime\n• order status <OrderNumber> – Check order status",
+
+  // Admin
+  adminHelp: "🛠️ *Admin Commands:*\n• msg [2547xxx,2547yyy] msg\n• /genlink <userID>\n• /setdiscount <percentage>\n• /updateorder <OrderNumber> <Status> <Remark>\nType 'Admin CMD' for help again.",
+  maintenanceMessage: "⚙️ The system is under maintenance. Try later.",
+
+  // Airtime discount (default 0)
   airtimeDiscountPercent: 0
 };
 
-// ---------- EXTRA FEATURES ----------
+// ====================
+// EXTRA FEATURES
+// ====================
 const motivationalQuotes = [
   "Believe you can and you're halfway there. – Theodore Roosevelt",
   "Your limitation—it’s only your imagination.",
@@ -69,27 +79,7 @@ const motivationalQuotes = [
 let adminLog = [];
 const botStartTime = Date.now();
 
-function getUptime() {
-  const diff = Date.now() - botStartTime;
-  const seconds = Math.floor(diff / 1000) % 60;
-  const minutes = Math.floor(diff / (1000 * 60)) % 60;
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  return `${hours}h ${minutes}m ${seconds}s`;
-}
-
-function getRandomQuote() {
-  return motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)];
-}
-
-function getAbout() {
-  return "FYS_PROPERTY Investment Bot v1.0\nDeveloped by FY'S PROPERTY 🕊️\nEnjoy our services!";
-}
-
-function getLeaderboard() {
-  return "Leaderboard feature coming soon!";
-}
-
-// ---------- HELPER FUNCTIONS ----------
+// Utility
 function parsePlaceholders(template, data) {
   return template
     .replace(/{amount}/g, data.amount || "")
@@ -104,24 +94,23 @@ function parsePlaceholders(template, data) {
 }
 
 function isAdmin(userNum) {
-  return userNum === ADMIN_PHONE + "@s.whatsapp.net" || userNum.includes(ADMIN_PHONE);
+  return userNum.includes(ADMIN_PHONE);
 }
 
-// ---------- STATE MANAGEMENT ----------
-const userStates = {};  
-// Example structure for airtime flow:
-// {
-//    "2547xxx@s.whatsapp.net": {
-//         stage: "awaitingAirtimeAmount" | "awaitingAirtimeRecipient" | "awaitingAirtimePayer" | "processingAirtimePayment",
-//         amount: 50,
-//         recipient: "0712345678",
-//         payer: "0711111111"
-//    }
-// }
+// Uptime
+function getUptime() {
+  const diff = Date.now() - botStartTime;
+  const s = Math.floor(diff / 1000) % 60;
+  const m = Math.floor(diff / (1000 * 60)) % 60;
+  const h = Math.floor(diff / (1000 * 60 * 60));
+  return `${h}h ${m}m ${s}s`;
+}
 
+// In-memory data
+const userStates = {};
 const orders = {};  // { orderNumber: { payer, recipient, amount, mpesaCode, date, status, remark } }
 
-// ---------- UTILITY FUNCTIONS ----------
+// Format phone
 function formatPhoneNumber(numStr) {
   let cleaned = numStr.replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
@@ -130,23 +119,15 @@ function formatPhoneNumber(numStr) {
   return cleaned;
 }
 
+// Generate order number: "FY'S-xxxxx"
 function generateOrderNumber() {
-  // Order number format: FY'S-xxxxx (apostrophe included in display)
   return "FY'S-" + Math.floor(10000 + Math.random() * 90000);
 }
 
-function generateInvestmentCode() {
-  return "INV-" + Math.floor(1000000 + Math.random() * 9000000);
-}
-
-function generateReferralCode() {
-  return "FYSPROP-" + Math.floor(10000 + Math.random() * 9000000);
-}
-
-// ---------- PAYHERO STK PUSH & STATUS ----------
+// STK push
 async function sendSTKPush(amount, phoneNumber) {
   const payload = {
-    amount: amount,
+    amount,
     phone_number: phoneNumber,
     channel_id: PAYHERO_CHANNEL_ID,
     provider: "m-pesa",
@@ -173,6 +154,7 @@ async function sendSTKPush(amount, phoneNumber) {
   }
 }
 
+// Fetch STK status
 async function fetchSTKStatus(ref) {
   try {
     const resp = await axios.get(`https://backend.payhero.co.ke/api/v2/transaction-status?reference=${encodeURIComponent(ref)}`, {
@@ -187,7 +169,7 @@ async function fetchSTKStatus(ref) {
   }
 }
 
-// ---------- AIRTIME PURCHASE ----------
+// Buy airtime
 async function buyAirtime(recipient, amount) {
   const payload = {
     api_key: AIRTIME_API_KEY,
@@ -204,12 +186,13 @@ async function buyAirtime(recipient, amount) {
   }
 }
 
-// ---------- ADMIN ALERT & LOGGING ----------
+// Admin alert
 function sendAdminAlert(text) {
   client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
   logAdmin(text);
 }
 
+// Log admin
 function logAdmin(message) {
   const timeStr = new Date().toLocaleString();
   const entry = `[${timeStr}] ${message}`;
@@ -217,75 +200,67 @@ function logAdmin(message) {
   console.log(entry);
 }
 
-// ---------- EXPRESS SERVER FOR QR CODE ----------
-
+// Express server for web-based QR code
 const app = express();
-let currentQR = ""; // Will hold the latest QR code string
+let currentQR = "";
 app.get("/qr", (req, res) => {
   if (currentQR) {
-    // Generate a data URL for the QR code
     qrcode.toDataURL(currentQR, function (err, url) {
       if (err) {
         res.status(500).send("Error generating QR code.");
       } else {
         res.send(`
           <html>
-            <head>
-              <title>WhatsApp Bot QR Code</title>
-              <style>
-                body { background: #f0f0f0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-                h1 { color: #333; }
-              </style>
-            </head>
-            <body>
-              <h1>Scan the QR Code to Login</h1>
-              <img src="${url}" alt="QR Code" />
+            <head><title>WhatsApp Bot QR Code</title></head>
+            <body style="background:#f0f0f0; text-align:center; font-family:Arial,sans-serif; padding-top:50px;">
+              <h1>Scan QR Code to Login</h1>
+              <img src="${url}" alt="QR Code"/>
             </body>
           </html>
         `);
       }
     });
   } else {
-    res.send("QR code not available.");
+    res.send("QR code not available at the moment.");
   }
 });
 app.listen(3000, () => {
-  console.log("Express server running on port 3000. Visit http://localhost:3000/qr to view the QR code.");
+  console.log("Express server on port 3000. Visit http://localhost:3000/qr to see QR code.");
 });
 
-// ---------- CLIENT INITIALIZATION ----------
+// Initialize client
 const client = new Client({
   authStrategy: new LocalAuth()
 });
 
 client.on("qr", (qr) => {
-  currentQR = qr; // update the QR code for the webpage
+  currentQR = qr;
   qrcodeTerminal.generate(qr, { small: true });
 });
 
 client.on("ready", () => {
   console.log("WhatsApp Client is ready!");
-  sendAdminAlert("WhatsApp Airtime Bot is now deployed and running!");
+  sendAdminAlert("WhatsApp Airtime Bot is deployed and running!");
 });
 
 client.initialize();
 
-// ---------- MESSAGE HANDLING ----------
+// On message
 client.on("message_create", async (msg) => {
-  if (msg.fromMe) return; // Ignore outgoing messages
+  if (msg.fromMe) return;
 
-  const userNum = msg.from; // e.g. "2547xxxx@s.whatsapp.net"
+  const userNum = msg.from;
   const body = msg.body.trim();
   const lowerBody = body.toLowerCase();
 
-  // ----- ADMIN COMMAND: "Admin CMD"
+  // Admin CMD
   if (isAdmin(userNum) && lowerBody === "admin cmd") {
     client.sendMessage(userNum, botConfig.adminHelp);
     return;
   }
-  
-  // ----- ADMIN COMMAND: Set discount, e.g. "/setdiscount 5"
-  if (isAdmin(userNum) && body.startsWith("/setdiscount")) {
+
+  // Admin discount: /setdiscount <percentage>
+  if (isAdmin(userNum) && lowerBody.startsWith("/setdiscount")) {
     const parts = body.split(" ");
     if (parts.length === 2) {
       const disc = parseFloat(parts[1]);
@@ -293,46 +268,46 @@ client.on("message_create", async (msg) => {
         botConfig.airtimeDiscountPercent = disc;
         client.sendMessage(userNum, `✅ Airtime discount set to ${disc}%`);
       } else {
-        client.sendMessage(userNum, "❌ Invalid discount percentage. Must be between 0 and 100.");
+        client.sendMessage(userNum, "❌ Invalid discount percentage. Must be 0-100.");
       }
     } else {
       client.sendMessage(userNum, "Usage: /setdiscount <percentage>");
     }
     return;
   }
-  
-  // ----- BASIC RESPONSES -----
+
+  // Basic responses
   if (lowerBody === "hi" || lowerBody === "hello") {
-    client.sendMessage(userNum, "👋 Hello! Type 'menu' to view options or 'help' for commands.");
+    client.sendMessage(userNum, "👋 Hello! Type 'menu' for options or 'help' for commands.");
     return;
   }
   if (lowerBody === "help") {
-    client.sendMessage(userNum, "💡 Commands:\nmenu - Main menu\nhelp - Show commands\ndeposit - Deposit funds\nbuy airtime - Buy airtime\norder status <OrderNumber> - Check order status");
+    client.sendMessage(userNum, botConfig.helpText);
     return;
   }
-  
-  // ----- MAIN MENU -----
+
+  // Main menu
   if (lowerBody === "menu") {
     userStates[userNum] = { registered: true };
     client.sendMessage(userNum, botConfig.mainMenuText);
     return;
   }
-  
-  // ----- PROCESS NUMERIC MENU SELECTION -----
+
+  // Numeric menu
   if (/^[1-5]$/.test(lowerBody)) {
     switch (lowerBody) {
       case "1":
-        // Deposit flow
+        // Deposit
         userStates[userNum] = { stage: "awaitingDepositAmount", registered: true };
         client.sendMessage(userNum, botConfig.depositPrompt);
         break;
       case "2":
-        // Airtime flow – ask for airtime amount
+        // Airtime
         userStates[userNum] = { stage: "awaitingAirtimeAmount", registered: true };
         client.sendMessage(userNum, botConfig.airtimeAmountPrompt);
         break;
       case "3":
-        // Check Balance (dummy)
+        // Balance
         client.sendMessage(userNum, botConfig.balanceMessage.replace("{balance}", "Not implemented in demo."));
         break;
       case "4":
@@ -340,31 +315,31 @@ client.on("message_create", async (msg) => {
         client.sendMessage(userNum, botConfig.helpText);
         break;
       case "5":
-        // Order status check
-        client.sendMessage(userNum, "📄 Please enter your Order Number (format: FY'S-xxxxx):");
+        // Order status
+        client.sendMessage(userNum, "📄 Enter your Order Number (FY'S-xxxxx):");
         userStates[userNum] = { stage: "awaitingOrderStatus" };
         break;
     }
     return;
   }
-  
-  // ----- DEPOSIT FLOW -----
+
+  // Deposit flow
   if (userStates[userNum]?.stage === "awaitingDepositAmount") {
     const amt = parseInt(body);
     if (isNaN(amt) || amt < 10 || amt > 3000) {
-      client.sendMessage(userNum, "❌ Invalid deposit amount. Must be between 10 and 3000 Ksh.");
+      client.sendMessage(userNum, "❌ Invalid deposit amount (10-3000).");
       return;
     }
     userStates[userNum].amount = amt;
     userStates[userNum].stage = "awaitingDepositPayer";
-    client.sendMessage(userNum, "📞 Enter the phone number that will pay for the deposit (must start with 07 or 01, 10 digits):");
+    client.sendMessage(userNum, "📞 Enter payer phone (07/01..., 10 digits):");
     return;
   }
-  
+
   if (userStates[userNum]?.stage === "awaitingDepositPayer") {
     const payer = body;
     if (!/^(07|01)\d{8}$/.test(payer)) {
-      client.sendMessage(userNum, "❌ Invalid payer phone. Must be 10 digits starting with 07 or 01.");
+      client.sendMessage(userNum, "❌ Invalid payer phone. Must be 10 digits (07/01...).");
       return;
     }
     userStates[userNum].payer = payer;
@@ -373,46 +348,45 @@ client.on("message_create", async (msg) => {
     const amt = userStates[userNum].amount;
     const ref = await sendSTKPush(amt, payPhone);
     if (!ref) {
-      client.sendMessage(userNum, "❌ Error initiating payment. Please try again later.");
+      client.sendMessage(userNum, "❌ Error initiating payment. Try again.");
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, "⏳ Payment initiated. Checking status in 20 seconds...");
+    client.sendMessage(userNum, "⏳ Payment initiated. Checking status in 20s...");
     setTimeout(async () => {
       const stData = await fetchSTKStatus(ref);
       const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
       if (!stData) {
-        client.sendMessage(userNum, "❌ Could not fetch payment status. Please try again.");
+        client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
         delete userStates[userNum];
         return;
       }
       const finalStatus = (stData.status || "").toUpperCase();
       if (finalStatus === "SUCCESS") {
         const successMsg = parsePlaceholders(botConfig.depositStatusSuccess, {
-          amount: userStates[userNum].amount,
+          amount: amt,
           date: dateNow
         });
         const fullMsg = `${successMsg}\n📞 Payer: ${userStates[userNum].payer}\n💳 M-Pesa Code: ${stData.provider_reference || "N/A"}`;
         client.sendMessage(userNum, fullMsg);
-        sendAdminAlert(`💸 Deposit Order\nUser: ${userNum}\nAmount: Ksh ${userStates[userNum].amount}\nPayer: ${userStates[userNum].payer}\nM-Pesa Code: ${stData.provider_reference || "N/A"}\nDate: ${dateNow}`);
+        sendAdminAlert(`💸 Deposit\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${userStates[userNum].payer}\nM-Pesa Code: ${stData.provider_reference || "N/A"}\nDate: ${dateNow}`);
       } else {
         const failMsg = parsePlaceholders(botConfig.depositStatusFailed, {
           status: stData.status || "Failed"
         });
         client.sendMessage(userNum, failMsg);
-        sendAdminAlert(`❌ Deposit Failed\nUser: ${userNum}\nAmount: Ksh ${userStates[userNum].amount}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
+        sendAdminAlert(`❌ Deposit Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
       }
       delete userStates[userNum];
     }, 20000);
     return;
   }
-  
-  // ----- AIRTIME FLOW -----
-  // Step 1: Ask for airtime amount
+
+  // Airtime flow
   if (userStates[userNum]?.stage === "awaitingAirtimeAmount") {
     const amt = parseInt(body);
     if (isNaN(amt) || amt < 10 || amt > 3000) {
-      client.sendMessage(userNum, "❌ Invalid airtime amount. Must be between 10 and 3000 Ksh.");
+      client.sendMessage(userNum, "❌ Invalid airtime amount (10-3000).");
       return;
     }
     userStates[userNum].amount = amt;
@@ -420,12 +394,11 @@ client.on("message_create", async (msg) => {
     client.sendMessage(userNum, botConfig.airtimeRecipientPrompt);
     return;
   }
-  
-  // Step 2: Ask for recipient number
+
   if (userStates[userNum]?.stage === "awaitingAirtimeRecipient") {
     const recipient = body;
     if (!/^(07|01)\d{8}$/.test(recipient)) {
-      client.sendMessage(userNum, "❌ Invalid recipient phone. Must be 10 digits starting with 07 or 01.");
+      client.sendMessage(userNum, "❌ Invalid recipient phone. Must be 10 digits (07/01...).");
       return;
     }
     userStates[userNum].recipient = recipient;
@@ -433,49 +406,46 @@ client.on("message_create", async (msg) => {
     client.sendMessage(userNum, botConfig.airtimePayerPrompt);
     return;
   }
-  
-  // Step 3: Ask for payer number and process airtime order
+
   if (userStates[userNum]?.stage === "awaitingAirtimePayer") {
     const payer = body;
     if (!/^(07|01)\d{8}$/.test(payer)) {
-      client.sendMessage(userNum, "❌ Invalid payer phone. Must be 10 digits starting with 07 or 01.");
+      client.sendMessage(userNum, "❌ Invalid payer phone. Must be 10 digits (07/01...).");
       return;
     }
     userStates[userNum].payer = payer;
     userStates[userNum].stage = "processingAirtimePayment";
     
-    // Apply admin discount if any
+    // Apply discount
     const discountPercent = botConfig.airtimeDiscountPercent || 0;
     const amt = userStates[userNum].amount;
-    const discountedAmt = Math.round(amt * (1 - discountPercent/100));  // Final amount to be charged
-    
+    const discountedAmt = Math.round(amt * (1 - discountPercent/100));
+
     const payPhone = formatPhoneNumber(payer);
     const ref = await sendSTKPush(discountedAmt, payPhone);
     if (!ref) {
-      client.sendMessage(userNum, "❌ Error initiating payment. Please try again later.");
+      client.sendMessage(userNum, "❌ Error initiating payment. Try again.");
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, `⏳ Payment initiated for Ksh ${discountedAmt} (after ${discountPercent}% discount). Checking status in 20 seconds...`);
+    client.sendMessage(userNum, `⏳ Payment initiated for Ksh ${discountedAmt} (after ${discountPercent}% discount). Checking status in 20s...`);
     setTimeout(async () => {
       const stData = await fetchSTKStatus(ref);
       const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
       if (!stData) {
-        client.sendMessage(userNum, "❌ Could not fetch payment status. Please try again.");
+        client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
         delete userStates[userNum];
         return;
       }
       const finalStatus = (stData.status || "").toUpperCase();
       if (finalStatus === "SUCCESS") {
-        client.sendMessage(userNum, "✅ Payment successful! Initiating airtime transfer...");
+        client.sendMessage(userNum, "✅ Payment successful! Sending airtime now...");
         // Call airtime API
-        const airtimeResp = await buyAirtime(userStates[userNum].recipient, amt);
-        // Generate order number in the format FY'S-xxxxx
+        await buyAirtime(userStates[userNum].recipient, amt); // ignoring the response
         const orderNumber = generateOrderNumber();
-        // Build order record (we mark order status as TRANSFERRED✅ even if raw API says error)
         const orderRecord = {
-          orderNumber: orderNumber,
-          payer: userStates[userNum].payer,
+          orderNumber,
+          payer,
           recipient: userStates[userNum].recipient,
           amount: amt,
           mpesaCode: stData.provider_reference || "N/A",
@@ -484,30 +454,30 @@ client.on("message_create", async (msg) => {
           remark: ""
         };
         orders[orderNumber] = orderRecord;
+
         const successMsg = parsePlaceholders(botConfig.airtimeStatusSuccess, {
-          amount: amt,
+          orderNumber,
+          payer,
           recipient: userStates[userNum].recipient,
-          date: dateNow,
-          orderNumber: orderNumber,
-          payer: userStates[userNum].payer,
-          mpesaCode: orderRecord.mpesaCode
+          mpesaCode: orderRecord.mpesaCode,
+          date: dateNow
         });
         client.sendMessage(userNum, successMsg);
-        sendAdminAlert(`📦 Airtime Order ${orderNumber}:\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${userStates[userNum].payer}\nRecipient: ${userStates[userNum].recipient}\nM-Pesa Code: ${orderRecord.mpesaCode}\nDate: ${dateNow}\nStatus: TRANSFERRED✅`);
+        sendAdminAlert(`📦 Airtime Order ${orderNumber}:\nUser: ${userNum}\nAmount: Ksh ${amt}\nDiscount: ${discountPercent}%\nPayer: ${payer}\nRecipient: ${orderRecord.recipient}\nM-Pesa Code: ${orderRecord.mpesaCode}\nDate: ${dateNow}\nStatus: TRANSFERRED✅`);
       } else {
         client.sendMessage(userNum, `❌ Payment status: ${stData.status || "Failed"}`);
-        sendAdminAlert(`User ${userNum} airtime payment failed: ${stData.status || "Failed"} on ${dateNow}.`);
+        sendAdminAlert(`Airtime Payment Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${payer}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
       }
       delete userStates[userNum];
     }, 20000);
     return;
   }
-  
-  // ----- ORDER STATUS CHECK -----
+
+  // Order status check: "order status FY'S-xxxxx"
   if (lowerBody.startsWith("order status")) {
     const parts = body.split(" ");
     if (parts.length < 3) {
-      client.sendMessage(userNum, "❌ Please provide an order number. Format: order status FY'S-xxxxx");
+      client.sendMessage(userNum, "❌ Provide order number: order status FY'S-xxxxx");
       return;
     }
     const orderNumber = parts[2].trim();
@@ -515,23 +485,23 @@ client.on("message_create", async (msg) => {
       client.sendMessage(userNum, "❌ Order not found.");
       return;
     }
-    const order = orders[orderNumber];
+    const ord = orders[orderNumber];
     const orderMsg = parsePlaceholders(botConfig.orderStatusText, {
-      orderNumber: order.orderNumber,
-      payer: order.payer,
-      recipient: order.recipient,
-      amount: order.amount,
-      mpesaCode: order.mpesaCode,
-      date: order.date,
-      status: order.status,
-      remark: order.remark || "None"
+      orderNumber: ord.orderNumber,
+      payer: ord.payer,
+      recipient: ord.recipient,
+      amount: ord.amount,
+      mpesaCode: ord.mpesaCode,
+      date: ord.date,
+      status: ord.status,
+      remark: ord.remark || "None"
     });
     client.sendMessage(userNum, orderMsg);
     return;
   }
-  
-  // ----- FALLBACK -----
-  client.sendMessage(userNum, "❓ Unrecognized command. Type 'menu' or 'help' to see options.");
+
+  // Fallback
+  client.sendMessage(userNum, "❓ Unrecognized command. Type 'menu' or 'help' for options.");
 });
 
 console.log("WhatsApp Airtime Bot loaded.");
