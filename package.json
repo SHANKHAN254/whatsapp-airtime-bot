@@ -1,16 +1,18 @@
 {
   "name": "whatsapp-airtime-bot",
   "version": "1.0.0",
-  "description": "WhatsApp bot for deposits and airtime purchases via PayHero API",
+  "description": "WhatsApp bot for depositing funds and buying airtime via PayHero API with order tracking and admin discount, showing QR code on web page",
   "main": "main.js",
   "scripts": {
     "start": "node main.js"
   },
   "dependencies": {
     "axios": "^0.27.2",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.1",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "^1.18.5"
   },
-  "author": "GK-FY",
+  "author": "FYS_PROPERTY 🕊️",
   "license": "ISC"
 }
