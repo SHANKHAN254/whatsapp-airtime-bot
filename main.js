@@ -11,7 +11,7 @@ const axios = require("axios");
 
 // PayHero API details (for STK push and payment status)
 const PAYHERO_AUTH = "Basic QklYOXY0WlR4RUV4ZUJSOG1EdDY6c2lYb09taHRYSlFMbWZ0dFdqeGp4SG13NDFTekJLckl2Z2NWd2F1aw==";
-const PAYHERO_CHANNEL_ID = 529;
+const PAYHERO_CHANNEL_ID = 724;
 
 // Airtime API details
 const AIRTIME_API_KEY = "6HyMVLHJMcBVBIhUKrHyjnakzWrYKYo8wo6hOmdTQV7gdIjbYV";
