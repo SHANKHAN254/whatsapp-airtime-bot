@@ -1,5 +1,6 @@
 "use strict";
 
+// Required modules
 const qrcode = require("qrcode-terminal");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const axios = require("axios");
@@ -7,65 +8,57 @@ const axios = require("axios");
 // ====================
 // CONFIGURATION & CONSTANTS
 // ====================
-const token = "6496106682:AAH4D4yMcYx4FKIyZem5akCQr6swjf_Z6pw"; // Your Bot Token
-const ADMIN_PHONE = "254701339573"; // Admin's phone (without +)
+
+// WhatsApp Bot token is managed by whatsapp-web.js (QR code login)
 const PAYHERO_AUTH = "Basic QklYOXY0WlR4RUV4ZUJSOG1EdDY6c2lYb09taHRYSlFMbWZ0dFdqeGp4SG13NDFTekJLckl2Z2NWd2F1aw==";
 const PAYHERO_CHANNEL_ID = 529;
+
+// Airtime API details
 const AIRTIME_API_KEY = "6HyMVLHJMcBVBIhUKrHyjnakzWrYKYo8wo6hOmdTQV7gdIjbYV";
 const AIRTIME_USERNAME = "fysproperty";
 
+// Admin phone (international format without plus)
+const ADMIN_PHONE = "254701339573";
+
 // ====================
-// Bot configurable messages (editable by admin via /edit)
+// BOT CONFIGURATION (Texts configurable by admin)
 // ====================
 let botConfig = {
   // Registration texts
-  registrationWelcome: "👋 *Welcome to FYS_PROPERTY Investment Bot!* \nBefore you begin, please register.\nEnter your *first name*:",
-  askLastName: "Great! Now, please enter your *last name*:",
-  askPhone: "Please enter your *phone number* (must start with 07 or 01, 10 digits):",
-  registrationSuccess: "Thank you, *{firstName} {lastName}*! Your registration is complete. Your referral code is *{referralCode}*.\nType menu to see our options.",
+  registrationWelcome: "👋 Welcome to *FYS_PROPERTY Investment Bot*! Please register.\nEnter your first name:",
+  askLastName: "Enter your last name:",
+  askPhone: "Enter your phone number (start with 07 or 01, 10 digits):",
+  registrationSuccess: "Thank you, *{firstName} {lastName}*! Your registration is complete. Your referral code is *{referralCode}*.\nType *menu* to view options.",
   
-  // Main menu text
-  mainMenuText: "Hello, *{firstName}*! Please select an option:\n1) Deposit\n2) Buy Airtime\nType 'deposit' or 'buy airtime'.",
+  // Main Menu
+  mainMenuText: "Main Menu:\n1) Deposit\n2) Buy Airtime\n3) Check Balance\n4) Help\n\nPlease reply with the number of your choice.",
   
-  // Deposit flow messages
-  depositIntro: "💰 *Deposit Flow Started!* Please enter the deposit amount in Ksh:",
-  depositPhonePrompt: "📱 Enter your M-PESA phone number (start with 07 or 01):",
-  paymentInitiated: "*⏳ Payment initiated!* Checking status in {seconds} seconds...",
-  countdownUpdate: "*⏳ {seconds} seconds left...*",
-  depositStatusSuccess: "🎉 Deposit successful! Your payment of Ksh {amount} was successful on {date}.",
-  depositStatusFailed: "❌ Payment failed: {status}. Please try again or contact support.",
-  depositFooter: "Thank you for using FYS_PROPERTY! Type menu to continue.",
-
-  // Airtime flow messages
-  airtimeIntro: "📱 *Airtime Purchase Initiated!* Enter the airtime amount (min 10, max 3000 Ksh):",
-  airtimeRecipientPrompt: "Please enter the recipient phone number (start with 07 or 01, 10 digits):",
-  airtimeStatusSuccess: "🎉 Airtime purchase successful! Airtime of Ksh {amount} sent to {recipient} on {date}.",
-  airtimeStatusFailed: "❌ Airtime purchase failed: {status}. Please try again or contact support.",
+  // Deposit messages
+  depositPrompt: "Enter the deposit amount in Ksh (min 10, max 3000):",
+  depositStatusSuccess: "🎉 Deposit successful! Your payment of Ksh {amount} was received on {date}.",
+  depositStatusFailed: "❌ Deposit failed: {status}. Please try again.",
   
-  // Withdrawal flow messages
-  withdrawPrompt: "💸 *Withdrawal Requested!* Enter the amount to withdraw (min Ksh {min}, max Ksh {max}):",
-  askWithdrawNumber: "Now, enter your M-PESA number (start with 07 or 01, 10 digits):",
+  // Airtime messages
+  airtimePrompt: "Enter the airtime amount to buy (min 10, max 3000 Ksh):",
+  airtimeRecipientPrompt: "Enter the recipient phone number (start with 07 or 01, 10 digits):",
+  airtimeStatusSuccess: "🎉 Airtime of Ksh {amount} sent successfully to {recipient} on {date}.",
+  airtimeStatusFailed: "❌ Airtime purchase failed: {status}.",
   
-  // Referral & balance
-  balanceMessage: "*💵 Your current balance is:* Ksh {balance}",
+  // Balance message
+  balanceMessage: "Your current balance is: Ksh {balance}.",
   
   // Admin & extra
-  fromAdmin: "FYS_PROPERTY Bot",
-  userHelp: "Commands:\nmenu - Main menu\nhelp - Show commands\ndeposit - Deposit funds\nbuy airtime - Buy airtime\n",
+  adminHelp: "Admin Commands:\n• msg [2547xxx,2547yyy] message - Broadcast message\n• Admin CMD - Show admin help\n• /genlink <userID> - Generate unique referral link\n• /resetdata, /clearhistory <number>, /exportdata, /adjust, etc.",
   
-  // Extra: referral
-  referralBonus: 200,
-  botUsername: "shankfy_bot",
+  // Other extras
+  helpText: "Commands:\nmenu - Main menu\nhelp - Show commands\n",
   
-  // Withdrawal fee percent
-  withdrawalFeePercent: 6,
-  
-  // Admin help text (editable via /edit as well)
-  adminHelp: "Admin Commands:\n- msg [number1,number2] message => broadcast\n- genlink <userID> => generate referral link for a user\n- /resetdata, /clearhistory <number>, /exportdata, /adjust, etc."
+  // Maintenance
+  maintenanceMessage: "⚙️ The system is under maintenance. Please try again later."
 };
 
 // ====================
-// EXTRA FEATURES & UTILITY FUNCTIONS
+// EXTRA FEATURES (Motivational quotes, uptime, etc.)
 // ====================
 const motivationalQuotes = [
   "Believe you can and you're halfway there. – Theodore Roosevelt",
@@ -95,57 +88,8 @@ function getAbout() {
 }
 
 function getLeaderboard() {
-  let leaderboard = [];
-  for (let uid in depositHistory) {
-    const total = depositHistory[uid].reduce((sum, rec) => sum + rec.amount, 0);
-    leaderboard.push({ uid, total });
-  }
-  leaderboard.sort((a, b) => b.total - a.total);
-  return leaderboard.slice(0, 5);
-}
-
-// ====================
-// IN-MEMORY DATA STORAGE
-// ====================
-const userStates = {}; // { userNumber: { stage, amount, recipient, ... } }
-
-// ====================
-// BOT CREATION
-// ====================
-const client = new Client({
-  authStrategy: new LocalAuth()
-});
-
-client.on("qr", (qr) => {
-  qrcode.generate(qr, { small: true });
-});
-
-client.on("ready", () => {
-  console.log("WhatsApp Client is ready!");
-});
-
-client.initialize();
-
-// ====================
-// MAINTENANCE MODE CHECK
-// ====================
-function maintenanceCheck(userNum, callback) {
-  // For simplicity, we assume if maintenanceMode is true, non-admin users get a maintenance message.
-  if (maintenanceMode && !userNum.includes(ADMIN_PHONE)) {
-    client.sendMessage(userNum, "⚙️ " + maintenanceMessage);
-    return;
-  }
-  callback();
-}
-
-// ====================
-// ADMIN LOGGING FUNCTION
-// ====================
-function logAdmin(message) {
-  const timeStr = new Date().toLocaleString();
-  const entry = `[${timeStr}] ${message}`;
-  adminLog.push(entry);
-  sendAdminAlert(entry);
+  // In a production system, this would query a database. Here, we use a dummy leaderboard.
+  return "Leaderboard feature coming soon!";
 }
 
 // ====================
@@ -156,30 +100,26 @@ function parsePlaceholders(template, data) {
     .replace(/{firstName}/g, data.firstName || "")
     .replace(/{lastName}/g, data.lastName || "")
     .replace(/{amount}/g, data.amount || "")
-    .replace(/{package}/g, data.package || "")
+    .replace(/{referralCode}/g, data.referralCode || "")
     .replace(/{recipient}/g, data.recipient || "")
-    .replace(/{min}/g, data.min || "")
-    .replace(/{mpesaCode}/g, data.mpesaCode || "")
-    .replace(/{seconds}/g, data.seconds || "")
     .replace(/{date}/g, data.date || "")
-    .replace(/{invCode}/g, data.invCode || "")
-    .replace(/{balance}/g, data.balance || "")
-    .replace(/{code}/g, data.code || "")
-    .replace(/{bonus}/g, data.bonus || "")
-    .replace(/{depositNumber}/g, data.depositNumber || "")
-    .replace(/{footer}/g, botConfig.depositFooter);
+    .replace(/{status}/g, data.status || "")
+    .replace(/{balance}/g, data.balance || "");
 }
 
 function isAdmin(userNum) {
-  // We assume userNum is like "254701339573@s.whatsapp.net"
   return userNum === ADMIN_PHONE + "@s.whatsapp.net" || userNum.includes(ADMIN_PHONE);
 }
 
-function isRegistered(userNum) {
-  // For this bot, we can check if the user state exists (in a production bot you would use a DB)
-  return userStates[userNum] && userStates[userNum].registered;
-}
+// ====================
+// STATE MANAGEMENT
+// ====================
+// We use an in-memory object for simplicity. In production, use a database.
+const userStates = {}; // e.g., { "2547xxx@s.whatsapp.net": { stage: "awaitingDepositAmount", amount: 50, registered: true, ... } }
 
+// ====================
+// UTILITY FUNCTIONS
+// ====================
 function formatPhoneNumber(numStr) {
   let cleaned = numStr.replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
@@ -197,7 +137,7 @@ function generateReferralCode() {
 }
 
 // ====================
-// STK PUSH (Deposit)
+// PAYHERO STK PUSH (for deposit and airtime payment)
 // ====================
 async function sendSTKPush(amount, phoneNumber) {
   const payload = {
@@ -242,12 +182,8 @@ async function fetchSTKStatus(ref) {
   }
 }
 
-function sendAdminAlert(text) {
-  client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
-}
-
 // ====================
-// BUY AIRTIME
+// AIRTIME PURCHASE
 // ====================
 async function buyAirtime(recipient, amount) {
   const payload = {
@@ -266,78 +202,115 @@ async function buyAirtime(recipient, amount) {
 }
 
 // ====================
+// ADMIN ALERT
+// ====================
+function sendAdminAlert(text) {
+  client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
+  logAdmin(text);
+}
+
+// ====================
+// ADMIN LOGGING
+// ====================
+function logAdmin(message) {
+  const timeStr = new Date().toLocaleString();
+  const entry = `[${timeStr}] ${message}`;
+  adminLog.push(entry);
+  console.log(entry);
+}
+
+// ====================
+// CLIENT INITIALIZATION
+// ====================
+const client = new Client({
+  authStrategy: new LocalAuth()
+});
+
+client.on("qr", (qr) => {
+  qrcode.generate(qr, { small: true });
+});
+
+client.on("ready", () => {
+  console.log("WhatsApp Client is ready!");
+  // Alert admin on startup
+  sendAdminAlert("WhatsApp Airtime Bot is now deployed and running!");
+});
+
+client.initialize();
+
+// ====================
 // MESSAGE HANDLING
 // ====================
 client.on("message_create", async (msg) => {
-  if (msg.fromMe) return;
+  if (msg.fromMe) return; // ignore outgoing
 
   const userNum = msg.from; // e.g. "2547xxxx@s.whatsapp.net"
-  const text = msg.body.trim().toLowerCase();
+  const body = msg.body.trim();
+  const lowerBody = body.toLowerCase();
 
-  // If admin sends "Admin CMD", show admin help
-  if (isAdmin(userNum) && text === "admin cmd") {
-    client.sendMessage(userNum, getAdminHelp());
+  // ----- ADMIN COMMAND: "Admin CMD" -----
+  if (isAdmin(userNum) && lowerBody === "admin cmd") {
+    client.sendMessage(userNum, botConfig.adminHelp);
     return;
   }
 
-  // Basic commands
-  if (text === "hi" || text === "hello") {
-    client.sendMessage(userNum, "Hello! Type 'menu' to see options or 'help' for commands.");
+  // ----- BASIC RESPONSES -----
+  if (lowerBody === "hi" || lowerBody === "hello") {
+    client.sendMessage(userNum, "Hello! Type 'menu' to view options or 'help' for commands.");
     return;
   }
-
-  if (text === "help") {
+  if (lowerBody === "help") {
     client.sendMessage(userNum,
-      "Commands:\nmenu - show main menu\nhelp - show commands\ndeposit - deposit funds\nbuy airtime - buy airtime\n"
+      "Available Commands:\nmenu - Main menu\nhelp - Show commands\n"
     );
     return;
   }
-
-  if (text === "menu") {
-    client.sendMessage(userNum,
-      "Main Menu:\n1) Deposit\n2) Buy Airtime\nType 'deposit' or 'buy airtime'."
-    );
+  
+  // ----- NUMERIC MENU -----
+  if (lowerBody === "menu") {
+    // Reset any previous state
+    userStates[userNum] = { registered: true };
+    client.sendMessage(userNum, botConfig.mainMenuText);
     return;
   }
-
-  // ADMIN BROADCAST: if admin sends "msg [2547xxx,2547yyy] message"
-  if (isAdmin(userNum) && msg.body.startsWith("msg ")) {
-    const data = parseBroadcast(msg.body);
-    if (!data) {
-      client.sendMessage(userNum, "Invalid broadcast format. Use: msg [2547xxx,2547yyy] message...");
-    } else {
-      const { arr, message } = data;
-      for (let phone of arr) {
-        const waNumber = phone + "@s.whatsapp.net";
-        try {
-          await client.sendMessage(waNumber, `*Admin Broadcast:*\n${message}`);
-        } catch (e) {
-          await client.sendMessage(userNum, `Could not send to ${phone}`);
-        }
-      }
-      client.sendMessage(userNum, "Broadcast complete.");
+  
+  // ----- PROCESS NUMERIC SELECTION -----
+  // If the user sends a single digit in reply to the menu:
+  if (/^[1-4]$/.test(lowerBody)) {
+    switch (lowerBody) {
+      case "1":
+        // Deposit
+        userStates[userNum] = { stage: "awaitingDepositAmount", registered: true };
+        client.sendMessage(userNum, botConfig.depositPrompt);
+        break;
+      case "2":
+        // Buy Airtime
+        userStates[userNum] = { stage: "awaitingAirtimeAmount", registered: true };
+        client.sendMessage(userNum, botConfig.airtimeIntro || "Enter the airtime amount (min 10, max 3000 Ksh):");
+        break;
+      case "3":
+        // Check Balance
+        // In a real system, balance would be stored persistently. Here, we simulate it.
+        client.sendMessage(userNum, botConfig.balanceMessage.replace("{balance}", "Your balance is not tracked in this demo."));
+        break;
+      case "4":
+        // Help
+        client.sendMessage(userNum, botConfig.helpText);
+        break;
     }
     return;
   }
-
-  // --------------------
-  // Deposit Flow
-  // --------------------
-  if (text === "deposit") {
-    userStates[userNum] = { stage: "awaitingDepositAmount" };
-    client.sendMessage(userNum, "Please enter the deposit amount in Ksh (minimum 10, maximum 3000).");
-    return;
-  }
-
+  
+  // ----- DEPOSIT FLOW -----
   if (userStates[userNum]?.stage === "awaitingDepositAmount") {
-    const amt = parseInt(msg.body);
+    const amt = parseInt(body);
     if (isNaN(amt) || amt < 10 || amt > 3000) {
       client.sendMessage(userNum, "Invalid deposit amount. Must be between 10 and 3000 Ksh.");
       return;
     }
     userStates[userNum].amount = amt;
     userStates[userNum].stage = "processingDeposit";
-    // For deposit, we use the user's WhatsApp number (converted)
+    // Use the sender's number for payment (converted)
     const payPhone = formatPhoneForSTK(userNum);
     const ref = await sendSTKPush(amt, payPhone);
     if (!ref) {
@@ -345,7 +318,7 @@ client.on("message_create", async (msg) => {
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, `Payment initiated. We'll check status in 20 seconds...`);
+    client.sendMessage(userNum, "Payment initiated. Checking status in 20 seconds...");
     setTimeout(async () => {
       const stData = await fetchSTKStatus(ref);
       const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
@@ -373,30 +346,22 @@ client.on("message_create", async (msg) => {
     }, 20000);
     return;
   }
-
-  // --------------------
-  // Airtime Flow
-  // --------------------
-  if (text === "buy airtime") {
-    userStates[userNum] = { stage: "awaitingAirtimeAmount" };
-    client.sendMessage(userNum, "Please enter the airtime amount you want to buy (min 10, max 3000 Ksh).");
-    return;
-  }
-
+  
+  // ----- AIRTIME FLOW -----
   if (userStates[userNum]?.stage === "awaitingAirtimeAmount") {
-    const amt = parseInt(msg.body);
+    const amt = parseInt(body);
     if (isNaN(amt) || amt < 10 || amt > 3000) {
       client.sendMessage(userNum, "Invalid airtime amount. Must be between 10 and 3000 Ksh.");
       return;
     }
     userStates[userNum].amount = amt;
     userStates[userNum].stage = "awaitingAirtimeRecipient";
-    client.sendMessage(userNum, "Please enter the recipient phone number (start with 07 or 01, 10 digits).");
+    client.sendMessage(userNum, botConfig.airtimeRecipientPrompt || "Enter the recipient phone number (start with 07 or 01, 10 digits):");
     return;
   }
-
+  
   if (userStates[userNum]?.stage === "awaitingAirtimeRecipient") {
-    const recipient = msg.body.trim();
+    const recipient = body;
     if (!/^(07|01)\d{8}$/.test(recipient)) {
       client.sendMessage(userNum, "Invalid recipient phone. Must be 10 digits starting with 07 or 01.");
       return;
@@ -411,7 +376,7 @@ client.on("message_create", async (msg) => {
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, `Payment initiated for Ksh ${amt}. We'll confirm in 20 seconds...`);
+    client.sendMessage(userNum, `Payment initiated for Ksh ${amt}. Checking status in 20 seconds...`);
     setTimeout(async () => {
       const stData = await fetchSTKStatus(ref);
       const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
@@ -422,7 +387,7 @@ client.on("message_create", async (msg) => {
       }
       const finalStatus = (stData.status || "").toUpperCase();
       if (finalStatus === "SUCCESS") {
-        client.sendMessage(userNum, "Payment successful! Initiating airtime purchase...");
+        client.sendMessage(userNum, "Payment successful! Proceeding to purchase airtime...");
         const airtimeResp = await buyAirtime(userStates[userNum].recipient, amt);
         if (airtimeResp && airtimeResp.status === true && airtimeResp.response?.Status === "Success") {
           const successMsg = parsePlaceholders(botConfig.airtimeStatusSuccess, {
@@ -431,7 +396,7 @@ client.on("message_create", async (msg) => {
             date: dateNow
           });
           client.sendMessage(userNum, successMsg);
-          sendAdminAlert(`User ${userNum} purchased airtime of Ksh ${amt} for ${userStates[userNum].recipient} on ${dateNow}.`);
+          sendAdminAlert(`User ${userNum} purchased airtime Ksh ${amt} for ${userStates[userNum].recipient} on ${dateNow}.`);
         } else {
           const failMsg = parsePlaceholders(botConfig.airtimeStatusFailed, {
             status: airtimeResp?.response?.Message || "Unknown error"
@@ -447,39 +412,16 @@ client.on("message_create", async (msg) => {
     }, 20000);
     return;
   }
-
-  // If command not recognized
+  
+  // Unrecognized command fallback
   client.sendMessage(userNum, "Unrecognized command. Type 'menu' or 'help' to see options.");
 });
 
 // ====================
-// ADMIN COMMAND: /admin CMD (only admin)
+// ADMIN HELP COMMAND (via "Admin CMD")
 // ====================
-client.on("message_create", async (msg) => {
-  if (msg.fromMe) return;
-  const userNum = msg.from;
-  const text = msg.body.trim().toLowerCase();
-  if (isAdmin(userNum) && text === "admin cmd") {
-    client.sendMessage(userNum, getAdminHelp());
-  }
-});
+// Already handled in the above message_create handler for admin.
 
 // ====================
-// ADMIN HELP FUNCTION
-// ====================
-function getAdminHelp() {
-  return (
-    "Admin Commands:\n" +
-    "msg [2547xxx,2547yyy] message => Broadcast message to multiple numbers\n" +
-    "/genlink <userID> => Generate a unique referral link for a user\n" +
-    "/resetdata => Reset all user data\n" +
-    "/clearhistory <number> => Clear deposit history for a user\n" +
-    "/exportdata => Export data to console\n" +
-    "/adjust <number> <amount> => Adjust user's balance\n" +
-    "/maintenance on|off => Toggle maintenance mode\n" +
-    "/maintenanceMsg <text> => Set maintenance message\n" +
-    "Type 'Admin CMD' to view this help message."
-  );
-}
-
-console.log("WhatsApp Bot loaded.");
+// End of Code
+console.log("WhatsApp Airtime Bot loaded.");
