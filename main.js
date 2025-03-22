@@ -9,7 +9,7 @@ const axios = require("axios");
 // CONFIGURATION & CONSTANTS
 // ====================
 
-// WhatsApp Bot token is managed by whatsapp-web.js (QR code login)
+// PayHero API details (for both STK push and checking status)
 const PAYHERO_AUTH = "Basic QklYOXY0WlR4RUV4ZUJSOG1EdDY6c2lYb09taHRYSlFMbWZ0dFdqeGp4SG13NDFTekJLckl2Z2NWd2F1aw==";
 const PAYHERO_CHANNEL_ID = 529;
 
@@ -17,48 +17,49 @@ const PAYHERO_CHANNEL_ID = 529;
 const AIRTIME_API_KEY = "6HyMVLHJMcBVBIhUKrHyjnakzWrYKYo8wo6hOmdTQV7gdIjbYV";
 const AIRTIME_USERNAME = "fysproperty";
 
-// Admin phone (international format without plus)
+// Admin phone (international format without the plus)
 const ADMIN_PHONE = "254701339573";
 
 // ====================
-// BOT CONFIGURATION (Texts configurable by admin)
+// BOT CONFIGURATION (Customizable texts)
 // ====================
 let botConfig = {
-  // Registration texts
-  registrationWelcome: "👋 Welcome to *FYS_PROPERTY Investment Bot*! Please register.\nEnter your first name:",
+  // Registration (if you wish to add a registration flow; here we use a simple numeric menu)
+  registrationWelcome: "👋 Welcome to *FYS_PROPERTY Investment Bot*! Please register by entering your first name:",
   askLastName: "Enter your last name:",
   askPhone: "Enter your phone number (start with 07 or 01, 10 digits):",
-  registrationSuccess: "Thank you, *{firstName} {lastName}*! Your registration is complete. Your referral code is *{referralCode}*.\nType *menu* to view options.",
-  
-  // Main Menu
-  mainMenuText: "Main Menu:\n1) Deposit\n2) Buy Airtime\n3) Check Balance\n4) Help\n\nPlease reply with the number of your choice.",
-  
-  // Deposit messages
-  depositPrompt: "Enter the deposit amount in Ksh (min 10, max 3000):",
+  registrationSuccess: "Thank you, *{firstName} {lastName}*! You are registered. Your referral code is *{referralCode}*. Type *menu* to see options.",
+
+  // Main Menu text (numeric options)
+  mainMenuText: "Main Menu:\n1) Deposit\n2) Buy Airtime\n3) Check Balance\n4) Help\n\nReply with the number of your choice.",
+
+  // Deposit flow messages
+  depositPrompt: "💰 Enter the deposit amount in Ksh (min 10, max 3000):",
   depositStatusSuccess: "🎉 Deposit successful! Your payment of Ksh {amount} was received on {date}.",
   depositStatusFailed: "❌ Deposit failed: {status}. Please try again.",
-  
-  // Airtime messages
-  airtimePrompt: "Enter the airtime amount to buy (min 10, max 3000 Ksh):",
-  airtimeRecipientPrompt: "Enter the recipient phone number (start with 07 or 01, 10 digits):",
+  depositFooter: "Thank you for using FYS_PROPERTY! Type *menu* to continue.",
+
+  // Airtime flow messages
+  airtimeIntro: "📱 Enter the airtime amount to buy (min 10, max 3000 Ksh):",
+  airtimeRecipientPrompt: "Enter the recipient phone number (must start with 07 or 01, 10 digits):",
   airtimeStatusSuccess: "🎉 Airtime of Ksh {amount} sent successfully to {recipient} on {date}.",
   airtimeStatusFailed: "❌ Airtime purchase failed: {status}.",
   
   // Balance message
-  balanceMessage: "Your current balance is: Ksh {balance}.",
+  balanceMessage: "💵 Your current balance is: Ksh {balance}.",
   
-  // Admin & extra
-  adminHelp: "Admin Commands:\n• msg [2547xxx,2547yyy] message - Broadcast message\n• Admin CMD - Show admin help\n• /genlink <userID> - Generate unique referral link\n• /resetdata, /clearhistory <number>, /exportdata, /adjust, etc.",
+  // Admin help text (for “Admin CMD”)
+  adminHelp: "Admin Commands:\n• msg [2547xxx,2547yyy] message – Broadcast message\n• /genlink <userID> – Generate referral link for a user\n• /resetdata, /clearhistory <number>, /exportdata, /adjust, etc.",
   
-  // Other extras
-  helpText: "Commands:\nmenu - Main menu\nhelp - Show commands\n",
+  // Extra help for users
+  helpText: "Commands:\nmenu – Main menu\nhelp – Show commands\n",
   
-  // Maintenance
+  // Maintenance message (if maintenance mode is on)
   maintenanceMessage: "⚙️ The system is under maintenance. Please try again later."
 };
 
 // ====================
-// EXTRA FEATURES (Motivational quotes, uptime, etc.)
+// EXTRA FEATURES (Quotes, uptime, about, etc.)
 // ====================
 const motivationalQuotes = [
   "Believe you can and you're halfway there. – Theodore Roosevelt",
@@ -88,7 +89,7 @@ function getAbout() {
 }
 
 function getLeaderboard() {
-  // In a production system, this would query a database. Here, we use a dummy leaderboard.
+  // Dummy implementation (replace with real logic if needed)
   return "Leaderboard feature coming soon!";
 }
 
@@ -108,18 +109,16 @@ function parsePlaceholders(template, data) {
 }
 
 function isAdmin(userNum) {
+  // WhatsApp numbers look like "254701339573@s.whatsapp.net"
   return userNum === ADMIN_PHONE + "@s.whatsapp.net" || userNum.includes(ADMIN_PHONE);
 }
 
 // ====================
-// STATE MANAGEMENT
+// STATE MANAGEMENT (In-memory)
 // ====================
-// We use an in-memory object for simplicity. In production, use a database.
-const userStates = {}; // e.g., { "2547xxx@s.whatsapp.net": { stage: "awaitingDepositAmount", amount: 50, registered: true, ... } }
+const userStates = {};  // e.g. { "2547xxxx@s.whatsapp.net": { stage: "awaitingDepositAmount", amount: 50, recipient: "07xxxxxxx", registered: true } }
 
-// ====================
-// UTILITY FUNCTIONS
-// ====================
+// Utility to format phone numbers
 function formatPhoneNumber(numStr) {
   let cleaned = numStr.replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
@@ -137,7 +136,7 @@ function generateReferralCode() {
 }
 
 // ====================
-// PAYHERO STK PUSH (for deposit and airtime payment)
+// PAYHERO STK PUSH & STATUS
 // ====================
 async function sendSTKPush(amount, phoneNumber) {
   const payload = {
@@ -202,16 +201,13 @@ async function buyAirtime(recipient, amount) {
 }
 
 // ====================
-// ADMIN ALERT
+// ADMIN ALERT & LOGGING
 // ====================
 function sendAdminAlert(text) {
   client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
   logAdmin(text);
 }
 
-// ====================
-// ADMIN LOGGING
-// ====================
 function logAdmin(message) {
   const timeStr = new Date().toLocaleString();
   const entry = `[${timeStr}] ${message}`;
@@ -232,7 +228,6 @@ client.on("qr", (qr) => {
 
 client.on("ready", () => {
   console.log("WhatsApp Client is ready!");
-  // Alert admin on startup
   sendAdminAlert("WhatsApp Airtime Bot is now deployed and running!");
 });
 
@@ -242,13 +237,13 @@ client.initialize();
 // MESSAGE HANDLING
 // ====================
 client.on("message_create", async (msg) => {
-  if (msg.fromMe) return; // ignore outgoing
+  if (msg.fromMe) return;
 
   const userNum = msg.from; // e.g. "2547xxxx@s.whatsapp.net"
   const body = msg.body.trim();
   const lowerBody = body.toLowerCase();
 
-  // ----- ADMIN COMMAND: "Admin CMD" -----
+  // ----- ADMIN COMMAND: "Admin CMD"
   if (isAdmin(userNum) && lowerBody === "admin cmd") {
     client.sendMessage(userNum, botConfig.adminHelp);
     return;
@@ -261,37 +256,35 @@ client.on("message_create", async (msg) => {
   }
   if (lowerBody === "help") {
     client.sendMessage(userNum,
-      "Available Commands:\nmenu - Main menu\nhelp - Show commands\n"
+      "Commands:\nmenu - Main menu\nhelp - Show commands\ndeposit - Deposit funds\nbuy airtime - Buy airtime\n"
     );
     return;
   }
   
-  // ----- NUMERIC MENU -----
+  // ----- MAIN MENU -----
   if (lowerBody === "menu") {
-    // Reset any previous state
+    // Reset state and mark user as registered
     userStates[userNum] = { registered: true };
     client.sendMessage(userNum, botConfig.mainMenuText);
     return;
   }
   
-  // ----- PROCESS NUMERIC SELECTION -----
-  // If the user sends a single digit in reply to the menu:
+  // ----- PROCESS NUMERIC MENU SELECTION -----
   if (/^[1-4]$/.test(lowerBody)) {
     switch (lowerBody) {
       case "1":
-        // Deposit
+        // Deposit flow
         userStates[userNum] = { stage: "awaitingDepositAmount", registered: true };
         client.sendMessage(userNum, botConfig.depositPrompt);
         break;
       case "2":
-        // Buy Airtime
+        // Airtime flow
         userStates[userNum] = { stage: "awaitingAirtimeAmount", registered: true };
-        client.sendMessage(userNum, botConfig.airtimeIntro || "Enter the airtime amount (min 10, max 3000 Ksh):");
+        client.sendMessage(userNum, botConfig.airtimeIntro || "Enter airtime amount (min 10, max 3000 Ksh):");
         break;
       case "3":
-        // Check Balance
-        // In a real system, balance would be stored persistently. Here, we simulate it.
-        client.sendMessage(userNum, botConfig.balanceMessage.replace("{balance}", "Your balance is not tracked in this demo."));
+        // Check Balance (for demo, we return a dummy message)
+        client.sendMessage(userNum, botConfig.balanceMessage.replace("{balance}", "Balance tracking not implemented in this demo."));
         break;
       case "4":
         // Help
@@ -310,8 +303,8 @@ client.on("message_create", async (msg) => {
     }
     userStates[userNum].amount = amt;
     userStates[userNum].stage = "processingDeposit";
-    // Use the sender's number for payment (converted)
-    const payPhone = formatPhoneForSTK(userNum);
+    // Use sender's WhatsApp number for payment (converted)
+    const payPhone = formatPhoneNumber(userNum.replace("@s.whatsapp.net", ""));
     const ref = await sendSTKPush(amt, payPhone);
     if (!ref) {
       client.sendMessage(userNum, "❌ Error initiating payment. Please try again later.");
@@ -356,7 +349,7 @@ client.on("message_create", async (msg) => {
     }
     userStates[userNum].amount = amt;
     userStates[userNum].stage = "awaitingAirtimeRecipient";
-    client.sendMessage(userNum, botConfig.airtimeRecipientPrompt || "Enter the recipient phone number (start with 07 or 01, 10 digits):");
+    client.sendMessage(userNum, botConfig.airtimeRecipientPrompt || "Enter the recipient phone number (10 digits, starting with 07 or 01):");
     return;
   }
   
@@ -368,7 +361,7 @@ client.on("message_create", async (msg) => {
     }
     userStates[userNum].recipient = recipient;
     userStates[userNum].stage = "processingAirtimePayment";
-    const payPhone = formatPhoneForSTK(userNum);
+    const payPhone = formatPhoneNumber(userNum.replace("@s.whatsapp.net", ""));
     const amt = userStates[userNum].amount;
     const ref = await sendSTKPush(amt, payPhone);
     if (!ref) {
@@ -396,7 +389,7 @@ client.on("message_create", async (msg) => {
             date: dateNow
           });
           client.sendMessage(userNum, successMsg);
-          sendAdminAlert(`User ${userNum} purchased airtime Ksh ${amt} for ${userStates[userNum].recipient} on ${dateNow}.`);
+          sendAdminAlert(`User ${userNum} purchased airtime of Ksh ${amt} for ${userStates[userNum].recipient} on ${dateNow}.`);
         } else {
           const failMsg = parsePlaceholders(botConfig.airtimeStatusFailed, {
             status: airtimeResp?.response?.Message || "Unknown error"
@@ -413,15 +406,13 @@ client.on("message_create", async (msg) => {
     return;
   }
   
-  // Unrecognized command fallback
+  // ----- FALLBACK -----
   client.sendMessage(userNum, "Unrecognized command. Type 'menu' or 'help' to see options.");
 });
 
 // ====================
-// ADMIN HELP COMMAND (via "Admin CMD")
+// ADMIN COMMAND: (Admin CMD handled above) -----
+// (Admin broadcast commands can be added similarly if needed)
 // ====================
-// Already handled in the above message_create handler for admin.
 
-// ====================
-// End of Code
 console.log("WhatsApp Airtime Bot loaded.");
