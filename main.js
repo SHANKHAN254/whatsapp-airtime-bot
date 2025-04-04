@@ -8,8 +8,12 @@
    - Order format: FY'S-xxxxx
    - M-Pesa transaction code shown
    - Additional user-friendly texts & emojis
+   - SMS integration: sends admin alerts to WhatsApp and SMS
 */
 
+// ====================
+// DEPENDENCIES
+// ====================
 const express = require("express");
 const qrcode = require("qrcode");
 const qrcodeTerminal = require("qrcode-terminal");
@@ -30,6 +34,10 @@ const AIRTIME_USERNAME = "fysproperty";
 
 // Admin phone
 const ADMIN_PHONE = "254701339573";
+
+// SMS API credentials
+const SMS_API_KEY = "cca05a3cffa4dcd47dbc70f0c9694aa6";
+const SMS_PARTNER_ID = "9233";
 
 // ====================
 // BOT CONFIGURATION
@@ -66,7 +74,7 @@ let botConfig = {
 };
 
 // ====================
-// EXTRA FEATURES
+// EXTRA FEATURES & UTILITIES
 // ====================
 const motivationalQuotes = [
   "Believe you can and you're halfway there. – Theodore Roosevelt",
@@ -79,7 +87,7 @@ const motivationalQuotes = [
 let adminLog = [];
 const botStartTime = Date.now();
 
-// Utility
+// Utility: Replace placeholders in messages
 function parsePlaceholders(template, data) {
   return template
     .replace(/{amount}/g, data.amount || "")
@@ -93,11 +101,12 @@ function parsePlaceholders(template, data) {
     .replace(/{balance}/g, data.balance || "");
 }
 
+// Utility: Check if user is admin
 function isAdmin(userNum) {
   return userNum.includes(ADMIN_PHONE);
 }
 
-// Uptime
+// Utility: Uptime display
 function getUptime() {
   const diff = Date.now() - botStartTime;
   const s = Math.floor(diff / 1000) % 60;
@@ -106,11 +115,11 @@ function getUptime() {
   return `${h}h ${m}m ${s}s`;
 }
 
-// In-memory data
+// In-memory data storage
 const userStates = {};
 const orders = {};  // { orderNumber: { payer, recipient, amount, mpesaCode, date, status, remark } }
 
-// Format phone
+// Utility: Format phone numbers
 function formatPhoneNumber(numStr) {
   let cleaned = numStr.replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
@@ -119,12 +128,16 @@ function formatPhoneNumber(numStr) {
   return cleaned;
 }
 
-// Generate order number: "FY'S-xxxxx"
+// Utility: Generate order number: "FY'S-xxxxx"
 function generateOrderNumber() {
   return "FY'S-" + Math.floor(10000 + Math.random() * 90000);
 }
 
-// STK push
+// ====================
+// PAYMENT FUNCTIONS
+// ====================
+
+// STK push for deposits/airtime payments
 async function sendSTKPush(amount, phoneNumber) {
   const payload = {
     amount,
@@ -154,7 +167,7 @@ async function sendSTKPush(amount, phoneNumber) {
   }
 }
 
-// Fetch STK status
+// Fetch STK payment status
 async function fetchSTKStatus(ref) {
   try {
     const resp = await axios.get(`https://backend.payhero.co.ke/api/v2/transaction-status?reference=${encodeURIComponent(ref)}`, {
@@ -169,7 +182,7 @@ async function fetchSTKStatus(ref) {
   }
 }
 
-// Buy airtime
+// Airtime purchase
 async function buyAirtime(recipient, amount) {
   const payload = {
     api_key: AIRTIME_API_KEY,
@@ -186,13 +199,11 @@ async function buyAirtime(recipient, amount) {
   }
 }
 
-// Admin alert
-function sendAdminAlert(text) {
-  client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
-  logAdmin(text);
-}
+// ====================
+// ADMIN & ALERT FUNCTIONS
+// ====================
 
-// Log admin
+// Log admin activity
 function logAdmin(message) {
   const timeStr = new Date().toLocaleString();
   const entry = `[${timeStr}] ${message}`;
@@ -200,7 +211,38 @@ function logAdmin(message) {
   console.log(entry);
 }
 
-// Express server for web-based QR code
+// Function to send SMS alerts using Bulk SMS API
+async function sendSMSAlert(message) {
+  const payload = {
+    apikey: SMS_API_KEY,
+    partnerID: SMS_PARTNER_ID,
+    message: message,
+    shortcode: "TextSMS", // Change this sender ID if required
+    mobile: ADMIN_PHONE
+  };
+  try {
+    const response = await axios.post("https://sms.textsms.co.ke/api/services/sendsms/", payload, {
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    console.log("SMS sent:", response.data);
+  } catch (error) {
+    console.error("Error sending SMS:", error.response ? error.response.data : error);
+  }
+}
+
+// Admin alert: send via WhatsApp and SMS
+function sendAdminAlert(text) {
+  client.sendMessage(ADMIN_PHONE + "@s.whatsapp.net", text);
+  logAdmin(text);
+  // Send SMS alert with the same text
+  sendSMSAlert(text);
+}
+
+// ====================
+// EXPRESS SERVER FOR QR CODE DISPLAY
+// ====================
 const app = express();
 let currentQR = "";
 app.get("/qr", (req, res) => {
@@ -228,24 +270,33 @@ app.listen(3000, () => {
   console.log("Express server on port 3000. Visit http://localhost:3000/qr to see QR code.");
 });
 
-// Initialize client
+// ====================
+// INITIALIZE WHATSAPP CLIENT
+// ====================
 const client = new Client({
   authStrategy: new LocalAuth()
 });
 
+// Display QR code in terminal when generated
 client.on("qr", (qr) => {
   currentQR = qr;
   qrcodeTerminal.generate(qr, { small: true });
 });
 
+// When WhatsApp client is ready, send a welcome alert and display linked device name
 client.on("ready", () => {
   console.log("WhatsApp Client is ready!");
-  sendAdminAlert("WhatsApp Airtime Bot is deployed and running!");
+  // Send a message to admin with the linked device name in an interesting way
+  const welcomeMsg = "✨ *FY'S PROPERTY* is now connected as your linked device! Ready to rock your transactions! 🚀";
+  sendAdminAlert(welcomeMsg);
 });
 
+// Initialize WhatsApp client
 client.initialize();
 
-// On message
+// ====================
+// MESSAGE HANDLER
+// ====================
 client.on("message_create", async (msg) => {
   if (msg.fromMe) return;
 
@@ -293,7 +344,7 @@ client.on("message_create", async (msg) => {
     return;
   }
 
-  // Numeric menu
+  // Numeric menu selection
   if (/^[1-5]$/.test(lowerBody)) {
     switch (lowerBody) {
       case "1":
@@ -500,7 +551,7 @@ client.on("message_create", async (msg) => {
     return;
   }
 
-  // Fallback
+  // Fallback for unrecognized commands
   client.sendMessage(userNum, "❓ Unrecognized command. Type 'menu' or 'help' for options.");
 });
 
