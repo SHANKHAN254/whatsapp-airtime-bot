@@ -137,7 +137,7 @@ function generateOrderNumber() {
 // PAYMENT FUNCTIONS
 // ====================
 
-// STK push for deposits/airtime payments
+// STK push for deposits/airtime payments – now sends immediately and checks status right away.
 async function sendSTKPush(amount, phoneNumber) {
   const payload = {
     amount,
@@ -167,7 +167,7 @@ async function sendSTKPush(amount, phoneNumber) {
   }
 }
 
-// Fetch STK payment status
+// Fetch STK payment status immediately after STK push
 async function fetchSTKStatus(ref) {
   try {
     const resp = await axios.get(`https://backend.payhero.co.ke/api/v2/transaction-status?reference=${encodeURIComponent(ref)}`, {
@@ -286,7 +286,6 @@ client.on("qr", (qr) => {
 // When WhatsApp client is ready, send a welcome alert and display linked device name
 client.on("ready", () => {
   console.log("WhatsApp Client is ready!");
-  // Send a message to admin with the linked device name in an interesting way
   const welcomeMsg = "✨ *FY'S PROPERTY* is now connected as your linked device! Ready to rock your transactions! 🚀";
   sendAdminAlert(welcomeMsg);
 });
@@ -403,33 +402,31 @@ client.on("message_create", async (msg) => {
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, "⏳ Payment initiated. Checking status in 20s...");
-    setTimeout(async () => {
-      const stData = await fetchSTKStatus(ref);
-      const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
-      if (!stData) {
-        client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
-        delete userStates[userNum];
-        return;
-      }
-      const finalStatus = (stData.status || "").toUpperCase();
-      if (finalStatus === "SUCCESS") {
-        const successMsg = parsePlaceholders(botConfig.depositStatusSuccess, {
-          amount: amt,
-          date: dateNow
-        });
-        const fullMsg = `${successMsg}\n📞 Payer: ${userStates[userNum].payer}\n💳 M-Pesa Code: ${stData.provider_reference || "N/A"}`;
-        client.sendMessage(userNum, fullMsg);
-        sendAdminAlert(`💸 Deposit\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${userStates[userNum].payer}\nM-Pesa Code: ${stData.provider_reference || "N/A"}\nDate: ${dateNow}`);
-      } else {
-        const failMsg = parsePlaceholders(botConfig.depositStatusFailed, {
-          status: stData.status || "Failed"
-        });
-        client.sendMessage(userNum, failMsg);
-        sendAdminAlert(`❌ Deposit Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
-      }
+    client.sendMessage(userNum, "⏳ Payment initiated. Checking status...");
+    const stData = await fetchSTKStatus(ref);
+    const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
+    if (!stData) {
+      client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
       delete userStates[userNum];
-    }, 20000);
+      return;
+    }
+    const finalStatus = (stData.status || "").toUpperCase();
+    if (finalStatus === "SUCCESS") {
+      const successMsg = parsePlaceholders(botConfig.depositStatusSuccess, {
+        amount: amt,
+        date: dateNow
+      });
+      const fullMsg = `${successMsg}\n📞 Payer: ${userStates[userNum].payer}\n💳 M-Pesa Code: ${stData.provider_reference || "N/A"}`;
+      client.sendMessage(userNum, fullMsg);
+      sendAdminAlert(`💸 Deposit\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${userStates[userNum].payer}\nM-Pesa Code: ${stData.provider_reference || "N/A"}\nDate: ${dateNow}`);
+    } else {
+      const failMsg = parsePlaceholders(botConfig.depositStatusFailed, {
+        status: stData.status || "Failed"
+      });
+      client.sendMessage(userNum, failMsg);
+      sendAdminAlert(`❌ Deposit Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
+    }
+    delete userStates[userNum];
     return;
   }
 
@@ -479,48 +476,45 @@ client.on("message_create", async (msg) => {
       delete userStates[userNum];
       return;
     }
-    client.sendMessage(userNum, `⏳ Payment initiated for Ksh ${discountedAmt} (after ${discountPercent}% discount). Checking status in 20s...`);
-    setTimeout(async () => {
-      const stData = await fetchSTKStatus(ref);
-      const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
-      if (!stData) {
-        client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
-        delete userStates[userNum];
-        return;
-      }
-      const finalStatus = (stData.status || "").toUpperCase();
-      if (finalStatus === "SUCCESS") {
-        client.sendMessage(userNum, "✅ Payment successful! Sending airtime now...");
-        // Call airtime API
-        await buyAirtime(userStates[userNum].recipient, amt); // ignoring the response
-        const orderNumber = generateOrderNumber();
-        const orderRecord = {
-          orderNumber,
-          payer,
-          recipient: userStates[userNum].recipient,
-          amount: amt,
-          mpesaCode: stData.provider_reference || "N/A",
-          date: dateNow,
-          status: "TRANSFERRED✅",
-          remark: ""
-        };
-        orders[orderNumber] = orderRecord;
-
-        const successMsg = parsePlaceholders(botConfig.airtimeStatusSuccess, {
-          orderNumber,
-          payer,
-          recipient: userStates[userNum].recipient,
-          mpesaCode: orderRecord.mpesaCode,
-          date: dateNow
-        });
-        client.sendMessage(userNum, successMsg);
-        sendAdminAlert(`📦 Airtime Order ${orderNumber}:\nUser: ${userNum}\nAmount: Ksh ${amt}\nDiscount: ${discountPercent}%\nPayer: ${payer}\nRecipient: ${orderRecord.recipient}\nM-Pesa Code: ${orderRecord.mpesaCode}\nDate: ${dateNow}\nStatus: TRANSFERRED✅`);
-      } else {
-        client.sendMessage(userNum, `❌ Payment status: ${stData.status || "Failed"}`);
-        sendAdminAlert(`Airtime Payment Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${payer}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
-      }
+    client.sendMessage(userNum, `⏳ Payment initiated for Ksh ${discountedAmt} (after ${discountPercent}% discount). Checking status...`);
+    const stData = await fetchSTKStatus(ref);
+    const dateNow = new Date().toLocaleString("en-GB", { timeZone: "Africa/Nairobi" });
+    if (!stData) {
+      client.sendMessage(userNum, "❌ Could not fetch payment status. Try again.");
       delete userStates[userNum];
-    }, 20000);
+      return;
+    }
+    const finalStatus = (stData.status || "").toUpperCase();
+    if (finalStatus === "SUCCESS") {
+      client.sendMessage(userNum, "✅ Payment successful! Sending airtime now...");
+      await buyAirtime(userStates[userNum].recipient, amt);
+      const orderNumber = generateOrderNumber();
+      const orderRecord = {
+        orderNumber,
+        payer,
+        recipient: userStates[userNum].recipient,
+        amount: amt,
+        mpesaCode: stData.provider_reference || "N/A",
+        date: dateNow,
+        status: "TRANSFERRED✅",
+        remark: ""
+      };
+      orders[orderNumber] = orderRecord;
+
+      const successMsg = parsePlaceholders(botConfig.airtimeStatusSuccess, {
+        orderNumber,
+        payer,
+        recipient: userStates[userNum].recipient,
+        mpesaCode: orderRecord.mpesaCode,
+        date: dateNow
+      });
+      client.sendMessage(userNum, successMsg);
+      sendAdminAlert(`📦 Airtime Order ${orderNumber}:\nUser: ${userNum}\nAmount: Ksh ${amt}\nDiscount: ${discountPercent}%\nPayer: ${payer}\nRecipient: ${orderRecord.recipient}\nM-Pesa Code: ${orderRecord.mpesaCode}\nDate: ${dateNow}\nStatus: TRANSFERRED✅`);
+    } else {
+      client.sendMessage(userNum, `❌ Payment status: ${stData.status || "Failed"}`);
+      sendAdminAlert(`Airtime Payment Failed\nUser: ${userNum}\nAmount: Ksh ${amt}\nPayer: ${payer}\nStatus: ${stData.status || "Failed"}\nDate: ${dateNow}`);
+    }
+    delete userStates[userNum];
     return;
   }
 
